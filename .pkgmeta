@@ -1,0 +1,5 @@
+package-as: MinimapTweaks
+manual-changelog: CHANGELOG.md
+ignore:
+  - README.md
+  - Toolsandstuff
