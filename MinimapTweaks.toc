@@ -11,7 +11,7 @@
 ## AddonCompartmentFuncOnLeave: MinimapTweaks_OnAddonCompartmentLeave
 
 ## X-License: GNU General Public License version 3 (GPLv3)
-## X-Curse-Project-ID: -------
+## X-Curse-Project-ID: 1483741
 
 ## Libraries
 Libs\LibStub\LibStub.lua
