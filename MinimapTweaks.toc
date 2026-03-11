@@ -1,6 +1,6 @@
 ## Interface: 120001
 ## Title: Minimap|cff00ff00Tweaks|r
-## Notes: Square minimap containing a collection of tweaks such as size and scale adjustment, Blizz buttons reanchoring and more.
+## Notes: A square minimap addon that contains a collection of tweaks such as size and scale adjustment, Blizz buttons reanchoring and more.
 ## Author: mellow_ayaya
 ## Version: 1.0.0
 ## IconTexture: Interface\AddOns\MinimapTweaks\icon.tga
