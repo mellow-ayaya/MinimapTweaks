@@ -3,10 +3,6 @@ local ADDON_NAME, MT = ...
 -- to reference before the full state block is reached.
 local db ---@type MinimapTweaksDB
 local RebuildPassThrough -- defined in the click-actions section below
--- Tell LibDBIcon (and every other addon that calls GetMinimapShape) that our
--- minimap is square.  LibDBIcon reads this in updatePosition() on every
--- placement so it uses its own square-clamp math automatically.
-GetMinimapShape = function() return "SQUARE" end
 -- ============================================================
 -- Anchor helpers
 -- ============================================================
@@ -28,7 +24,8 @@ local ANCHOR_SELECT = {
 	[9] = "Bottom Right",
 }
 local function AnchorPoint(v)
-	return ANCHOR_POINTS[math.floor((v or 3) + 0.5)] or "TOPRIGHT"
+	-- v is always an integer 1-9 from an AceConfig select widget; no rounding needed.
+	return ANCHOR_POINTS[v or 3] or "TOPRIGHT"
 end
 
 -- ============================================================
@@ -125,8 +122,10 @@ local CLICK_ACTION_VALUES = {
 	timer = "Timer / Alarm",
 	none = "None",
 }
--- Clock cannot ping (it sits above Minimap and intercepts the click).
-local CLOCK_CLICK_ACTION_VALUES = {
+-- Actions valid for any widget that sits above the minimap surface (not the minimap itself).
+-- "ping" is excluded because these frames are not the minimap surface and cannot
+-- pass a ping through to Blizzard's untainted OnMouseUp handler.
+local OVERLAY_CLICK_ACTION_VALUES = {
 	worldmap = "World Map",
 	tracking = "Tracking Menu",
 	zoomin = "Zoom In",
@@ -226,8 +225,8 @@ local BLIZZ_BUTTON_DEFS = {
 local DB_DEFAULTS = {
 	profile = {
 		-- Minimap
-		size = 230,
-		scale = 1.2,
+		size = 210,
+		scale = 1,
 		buttonOffset = 0,
 		-- MinimapContainer anchor offset
 		mapOffsetX = 0,
@@ -237,14 +236,16 @@ local DB_DEFAULTS = {
 		zoomResetDelay = 5,
 		zoomResetLevel = 0,
 		-- Border
-		borderEnabled = true,
-		borderSize = 2,
-		borderR = 0.251,
-		borderG = 0.251,
-		borderB = 0.251,
-		borderA = 1.0,
-		borderTexture = "Solid",
-		borderOffset = 1,
+		border = {
+			enabled = true,
+			size = 2,
+			r = 0.251,
+			g = 0.251,
+			b = 0.251,
+			a = 1.0,
+			texture = "Solid",
+			offset = 1,
+		},
 		-- Per-button settings.  anchor: 1-9 index into ANCHOR_POINTS.
 		-- shown = true  → reanchor, let Blizzard manage visibility.
 		-- shown = false → force-hide and block Blizzard re-shows.
@@ -338,14 +339,7 @@ local DB_DEFAULTS = {
 ---@field zoomResetEnabled  boolean
 ---@field zoomResetDelay    number
 ---@field zoomResetLevel    number
----@field borderEnabled     boolean
----@field borderSize        number
----@field borderR           number
----@field borderG           number
----@field borderB           number
----@field borderA           number
----@field borderTexture     string
----@field borderOffset      number
+---@field border            {enabled: boolean, size: number, r: number, g: number, b: number, a: number, texture: string, offset: number}
 ---@field blizzButtons      table<string, {shown: boolean, anchor: number, x: number, y: number}>
 ---@field zoneText          {enabled: boolean, anchor: number, x: number, y: number, font: string, fontSize: number, justify: number, outline: string}
 ---@field clock             {enabled: boolean, anchor: number, x: number, y: number, font: string, fontSize: number, justify: number, width: number, height: number, outline: string}
@@ -371,8 +365,12 @@ local clockTicker = nil         -- C_Timer ticker for the clock
 local coordsFrame = nil         -- Our coordinates widget
 local coordsTicker = nil        -- C_Timer ticker for coordinates
 local _applyingSettings = false -- suppresses zoom-reset hook during apply
--- Raw (unhooked) SetPoint — grabbed from a plain frame so that any hooks
--- installed on MinimapContainer by ResizeLayoutFrame cannot reset our anchor.
+-- Capture SetPoint from a fresh, unnamed frame whose method table carries no
+-- addon hooks.  We deliberately do NOT grab this from MinimapContainer, because
+-- Blizzard's ResizeLayoutFrame mixin hooks that specific frame's SetPoint before
+-- our addon loads — meaning mco.SetPoint would already be wrapped and would undo
+-- our anchor on every cluster resize.  A new frame's SetPoint is always the raw
+-- C-level method; the hook lives on mco's table, not on the shared metatable.
 local _rawSetPoint = CreateFrame("Frame").SetPoint
 -- ============================================================
 -- Zone text label
@@ -494,6 +492,9 @@ local function ApplyClockWidget()
 	clockFrame.label:SetText("") -- force layout reset before UpdateClock refills it
 	UpdateClock()
 	RebuildPassThrough(clockFrame, p.clockClicks)
+	-- Guard: only create the ticker if one isn't already running.  ApplyClockWidget
+	-- is called on every settings change, so we avoid cancelling and recreating a
+	-- perfectly healthy ticker on every minor tweak (font size, anchor, etc.).
 	if not clockTicker then
 		clockTicker = C_Timer.NewTicker(1, UpdateClock)
 	end
@@ -543,7 +544,11 @@ local function ApplyCoords()
 		MT.coordsFrame = coordsFrame
 	end
 
-	-- Cancel any existing ticker before (re)creating it.
+	-- Unconditionally cancel and recreate the ticker on every apply so that
+	-- any setting change (anchor, font, size) takes effect on the next tick
+	-- without waiting for the old ticker to fire.  Unlike the clock ticker,
+	-- there is no guard here because ApplyCoords is only called from explicit
+	-- settings callbacks, never from a high-frequency path.
 	if coordsTicker then
 		coordsTicker:Cancel(); coordsTicker = nil
 	end
@@ -691,16 +696,17 @@ local function ApplyBorder()
 	-- borderSize is the edgeSize: how large each texture tile is rendered.
 	-- At offset=0 the border tiles straddle the minimap edge (half inside, half outside),
 	-- keeping the border visually flush rather than floating away from the map.
-	local offset = p.borderOffset or 0
+	local b = p.border
+	local offset = b.offset or 0
 	borderFrame:SetSize(p.size + offset * 2, p.size + offset * 2)
 	borderFrame:ClearAllPoints()
 	borderFrame:SetPoint("CENTER", Minimap, "CENTER", 0, 0)
-	if p.borderEnabled and p.borderSize > 0 then
+	if b.enabled and b.size > 0 then
 		borderFrame:SetBackdrop({
-			edgeFile = ResolveBorderPath(p.borderTexture or "Solid"),
-			edgeSize = p.borderSize,
+			edgeFile = ResolveBorderPath(b.texture or "Solid"),
+			edgeSize = b.size,
 		})
-		borderFrame:SetBackdropBorderColor(p.borderR, p.borderG, p.borderB, p.borderA)
+		borderFrame:SetBackdropBorderColor(b.r, b.g, b.b, b.a)
 		borderFrame:Show()
 	else
 		borderFrame:SetBackdrop(nil)
@@ -759,6 +765,11 @@ local function SyncButtonRadius()
 	-- distance from centre.  LibDBIcon reads the live frame width itself and
 	-- adds it internally when positioning each button.
 	LibDBIcon:SetButtonRadius(db.profile.buttonOffset)
+	-- LibDBIcon has no public "refresh all buttons" API; the only way to trigger
+	-- a repositioning pass for every registered button is to iterate the internal
+	-- `objects` table.  This is a known compromise against a private field — if
+	-- the library reorganises its internals this loop will silently stop working,
+	-- but it will not error or break anything else.
 	if LibDBIcon.objects then
 		for name, button in pairs(LibDBIcon.objects) do
 			LibDBIcon:Refresh(name, button.db)
@@ -933,13 +944,14 @@ end
 -- Shared namespace  (MT — read by MinimapTweaksOptions.lua)
 -- ============================================================
 -- Constants used by the options UI.
+MT.ANCHOR_POINTS = ANCHOR_POINTS
 MT.ANCHOR_SELECT = ANCHOR_SELECT
 MT.GetFontList = GetFontList
 MT.GetBorderList = GetBorderList
 MT.OUTLINE_SELECT = OUTLINE_SELECT
 MT.JUSTIFY_SELECT = JUSTIFY_SELECT
 MT.CLICK_ACTION_VALUES = CLICK_ACTION_VALUES
-MT.CLOCK_CLICK_ACTION_VALUES = CLOCK_CLICK_ACTION_VALUES
+MT.OVERLAY_CLICK_ACTION_VALUES = OVERLAY_CLICK_ACTION_VALUES
 MT.BLIZZ_BUTTON_DEFS = BLIZZ_BUTTON_DEFS
 -- Apply functions called by options set callbacks.
 MT.ApplySettings = ApplySettings
@@ -950,6 +962,7 @@ MT.ApplyCoords = ApplyCoords
 MT.ApplyCompartmentFont = ApplyCompartmentFont
 MT.ApplyClickActions = ApplyClickActions
 MT.RepositionBlizzButtons = RepositionBlizzButtons
+MT.SyncButtonRadius = SyncButtonRadius
 MT.HideBlizzHeader = HideBlizzHeader
 MT.RebuildPassThrough = RebuildPassThrough
 MT.UpdateCoords = UpdateCoords
@@ -957,7 +970,7 @@ MT.OpenSettings = OpenSettings
 -- MT.clockFrame / MT.coordsFrame are set by ApplyClockWidget / ApplyCoords
 -- when those frames are first created (on PLAYER_LOGIN).
 -- MT.db is set in the ADDON_LOADED handler once AceDB creates it.
--- MT.SetupSettings and MT._DevExportPopup are set by MinimapTweaksOptions.lua.
+-- MT.SetupSettings is set by MinimapTweaksOptions.lua.
 -- ============================================================
 -- Addon Compartment entry point
 -- ============================================================
@@ -991,8 +1004,6 @@ SlashCmdList["MINIMAPTWEAKS"] = function(msg)
 		db:ResetProfile()
 		ApplySettings()
 		print("|cff88aaff[MinimapTweaks]|r Profile reset to defaults.")
-	elseif msg == "export" then -- DEV: remove with _DevExportPopup block when done
-		if MT._DevExportPopup then MT._DevExportPopup() end
 	else
 		OpenSettings()
 	end
@@ -1006,6 +1017,11 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
+		-- Set here rather than at file-parse time so that all addons have had a
+		-- chance to load first.  Any addon that loaded after us and also sets
+		-- GetMinimapShape would still win, but that is the correct behaviour —
+		-- last writer at ADDON_LOADED time is a fair contest; parse-time is not.
+		GetMinimapShape = function() return "SQUARE" end
 		db = LibStub("AceDB-3.0"):New("MinimapTweaksDB", DB_DEFAULTS, true) --[[@as MinimapTweaksDB]]
 		MT.db = db -- share with options file
 		MT.SetupSettings()

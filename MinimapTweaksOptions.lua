@@ -11,13 +11,17 @@ local function BuildOptionsTable()
 			MT.db.profile[key] = v; (applyFn or MT.ApplySettings)()
 		end
 	end
+	-- Helpers for one level of nesting into a profile sub-table (e.g. border).
+	local function getb(tbl, key)
+		return function() return MT.db.profile[tbl][key] end
+	end
+	local function setb(tbl, key, applyFn)
+		return function(_, v)
+			MT.db.profile[tbl][key] = v; (applyFn or MT.ApplySettings)()
+		end
+	end
 
 	-- ── Preview ghost frames ──────────────────────────────────────────────────
-	-- Mirrors the private ANCHOR_POINTS table in MinimapTweaks.lua.
-	local ANCHOR_POINTS = {
-		"TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER",
-		"RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT",
-	}
 	-- key → Frame; lives only for the current UI session.
 	local previewFrames = {}
 	-- Repositions an existing preview frame to match current profile values,
@@ -26,7 +30,7 @@ local function BuildOptionsTable()
 		local f = previewFrames[key]
 		if not f then return end
 
-		local pt = ANCHOR_POINTS[anchor] or "TOPRIGHT"
+		local pt = MT.ANCHOR_POINTS[anchor] or "TOPRIGHT"
 		f:ClearAllPoints()
 		f:SetPoint(pt, Minimap, pt, x, y)
 	end
@@ -45,7 +49,7 @@ local function BuildOptionsTable()
 			set = function(_, v)
 				if v then
 					local anchor, x, y = getPos()
-					local pt = ANCHOR_POINTS[anchor] or "TOPRIGHT"
+					local pt = MT.ANCHOR_POINTS[anchor] or "TOPRIGHT"
 					local f = CreateFrame("Frame", nil, Minimap)
 					f:SetSize(24, 24)
 					f:SetPoint(pt, Minimap, pt, x, y)
@@ -734,7 +738,7 @@ local function BuildOptionsTable()
 								max = 20,
 								step = 1,
 								get = get("buttonOffset"),
-								set = set("buttonOffset"),
+								set = set("buttonOffset", MT.SyncButtonRadius),
 							},
 							mapOffsetX = {
 								type = "range",
@@ -772,8 +776,8 @@ local function BuildOptionsTable()
 								name = "Show Border",
 								order = 1,
 								width = 1,
-								get = get("borderEnabled"),
-								set = set("borderEnabled", MT.ApplyBorder),
+								get = getb("border", "enabled"),
+								set = setb("border", "enabled", MT.ApplyBorder),
 							},
 							borderSize = {
 								type = "range",
@@ -784,9 +788,9 @@ local function BuildOptionsTable()
 								min = 1,
 								max = 64,
 								step = 1,
-								get = get("borderSize"),
-								set = set("borderSize", MT.ApplyBorder),
-								disabled = function() return not MT.db.profile.borderEnabled end,
+								get = getb("border", "size"),
+								set = setb("border", "size", MT.ApplyBorder),
+								disabled = function() return not MT.db.profile.border.enabled end,
 							},
 							borderOffset = {
 								type = "range",
@@ -798,9 +802,9 @@ local function BuildOptionsTable()
 								min = -32,
 								max = 64,
 								step = 1,
-								get = get("borderOffset"),
-								set = set("borderOffset", MT.ApplyBorder),
-								disabled = function() return not MT.db.profile.borderEnabled end,
+								get = getb("border", "offset"),
+								set = setb("border", "offset", MT.ApplyBorder),
+								disabled = function() return not MT.db.profile.border.enabled end,
 							},
 							borderColor = {
 								type = "color",
@@ -809,16 +813,16 @@ local function BuildOptionsTable()
 								width = 0.99,
 								hasAlpha = true,
 								get = function()
-									local p = MT.db.profile
-									return p.borderR, p.borderG, p.borderB, p.borderA
+									local b = MT.db.profile.border
+									return b.r, b.g, b.b, b.a
 								end,
 								set = function(_, r, g, b, a)
-									local p = MT.db.profile
-									p.borderR = r; p.borderG = g
-									p.borderB = b; p.borderA = a
+									local border = MT.db.profile.border
+									border.r = r; border.g = g
+									border.b = b; border.a = a
 									MT.ApplyBorder()
 								end,
-								disabled = function() return not MT.db.profile.borderEnabled end,
+								disabled = function() return not MT.db.profile.border.enabled end,
 							},
 							borderTexture = {
 								type = "select",
@@ -827,9 +831,9 @@ local function BuildOptionsTable()
 								order = 5,
 								width = 2,
 								values = MT.GetBorderList,
-								get = get("borderTexture"),
-								set = set("borderTexture", MT.ApplyBorder),
-								disabled = function() return not MT.db.profile.borderEnabled end,
+								get = getb("border", "texture"),
+								set = setb("border", "texture", MT.ApplyBorder),
+								disabled = function() return not MT.db.profile.border.enabled end,
 							},
 						},
 					},
@@ -940,7 +944,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Left Click",
 								order = 1,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.clockClicks.left end,
 								set = function(_, v)
 									MT.db.profile.clockClicks.left = v
@@ -951,7 +955,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Middle Click",
 								order = 2,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.clockClicks.middle end,
 								set = function(_, v)
 									MT.db.profile.clockClicks.middle = v
@@ -962,7 +966,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Right Click",
 								order = 3,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.clockClicks.right end,
 								set = function(_, v)
 									MT.db.profile.clockClicks.right = v
@@ -981,7 +985,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Left Click",
 								order = 1,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.coordsClicks.left end,
 								set = function(_, v)
 									MT.db.profile.coordsClicks.left = v
@@ -992,7 +996,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Middle Click",
 								order = 2,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.coordsClicks.middle end,
 								set = function(_, v)
 									MT.db.profile.coordsClicks.middle = v
@@ -1003,7 +1007,7 @@ local function BuildOptionsTable()
 								type = "select",
 								name = "Right Click",
 								order = 3,
-								values = MT.CLOCK_CLICK_ACTION_VALUES,
+								values = MT.OVERLAY_CLICK_ACTION_VALUES,
 								get = function() return MT.db.profile.coordsClicks.right end,
 								set = function(_, v)
 									MT.db.profile.coordsClicks.right = v
@@ -1040,131 +1044,6 @@ local function SetupSettings()
 end
 
 -- ============================================================
--- DEV TOOL: profile export popup  (/mmt export)
--- *** Remove this entire section once default-tuning is done ***
--- ============================================================
---- Recursively serialise a value into a Lua literal string.
---- Tables are printed with sorted keys and indentation.
-local function _DevSerializeValue(v, indent)
-	local t = type(v)
-	if t == "boolean" then
-		return tostring(v)
-	elseif t == "number" then
-		-- Keep floats readable; strip trailing ".0" only for round numbers.
-		if v ~= math.floor(v) then
-			return string.format("%.4g", v)
-		else
-			return tostring(math.floor(v))
-		end
-	elseif t == "string" then
-		return string.format("%q", v)
-	elseif t == "table" then
-		indent = indent or ""
-		local inner = indent .. "    "
-		-- Separate integer keys from string keys.
-		local intKeys, strKeys = {}, {}
-		for k in pairs(v) do
-			if type(k) == "number" then
-				intKeys[#intKeys + 1] = k
-			else
-				strKeys[#strKeys + 1] = k
-			end
-		end
-
-		table.sort(intKeys)
-		table.sort(strKeys)
-		local lines = {}
-		for _, k in ipairs(intKeys) do
-			lines[#lines + 1] = inner .. "[" .. k .. "] = "
-					.. _DevSerializeValue(v[k], inner) .. ","
-		end
-
-		for _, k in ipairs(strKeys) do
-			lines[#lines + 1] = inner .. k .. " = "
-					.. _DevSerializeValue(v[k], inner) .. ","
-		end
-
-		if #lines == 0 then return "{}" end
-
-		return "{\n" .. table.concat(lines, "\n") .. "\n" .. indent .. "}"
-	else
-		return tostring(v)
-	end
-end
-
---- Build the full text that can be pasted into DB_DEFAULTS in VSCode.
-local function _DevBuildExportText()
-	if not MT.db then return "-- MT.db not initialised yet" end
-
-	local lines = {
-		"-- MinimapTweaks profile export  (paste into DB_DEFAULTS > profile = { ... })",
-		"-- Generated by /mmt export — remove _DevExportPopup and _DevBuildExportText when done.",
-		"",
-		"profile = " .. _DevSerializeValue(MT.db.profile, ""),
-	}
-	return table.concat(lines, "\n")
-end
-
---- Show (or raise) a movable popup containing the serialised profile.
-local _devExportFrame = nil
-local function _DevExportPopup()
-	-- Re-use the frame if it already exists.
-	if _devExportFrame then
-		_devExportFrame:Show()
-		_devExportFrame.eb:SetText(_DevBuildExportText())
-		_devExportFrame.eb:SetCursorPosition(0)
-		return
-	end
-
-	local f = CreateFrame("Frame", "MinimapTweaksDevExport", UIParent,
-		"BackdropTemplate")
-	f:SetSize(680, 480)
-	f:SetPoint("CENTER")
-	f:SetFrameStrata("DIALOG")
-	f:SetMovable(true)
-	f:EnableMouse(true)
-	f:RegisterForDrag("LeftButton")
-	f:SetScript("OnDragStart", f.StartMoving)
-	f:SetScript("OnDragStop", f.StopMovingOrSizing)
-	f:SetBackdrop({
-		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-		tile = true,
-		tileSize = 32,
-		edgeSize = 32,
-		insets = { left = 11, right = 12, top = 12, bottom = 11 },
-	})
-	-- Title bar
-	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -16)
-	title:SetText("|cffff9900[DEV] MinimapTweaks – Profile Export|r")
-	local sub = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	sub:SetPoint("TOP", title, "BOTTOM", 0, -4)
-	sub:SetText("Select all (Ctrl+A) → Copy (Ctrl+C) → paste into DB_DEFAULTS in VSCode")
-	-- Close button
-	local btn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	btn:SetPoint("TOPRIGHT", -5, -5)
-	btn:SetScript("OnClick", function() f:Hide() end)
-	-- Scroll frame + editbox
-	local sf = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-	sf:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -68)
-	sf:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -36, 16)
-	local eb = CreateFrame("EditBox", nil, sf)
-	eb:SetMultiLine(true)
-	eb:SetAutoFocus(false)
-	eb:SetFontObject("ChatFontNormal")
-	eb:SetWidth(sf:GetWidth())
-	eb:SetScript("OnEscapePressed", function() f:Hide() end)
-	sf:SetScrollChild(eb)
-	f.eb = eb
-	_devExportFrame = f
-	eb:SetText(_DevBuildExportText())
-	eb:SetCursorPosition(0)
-	f:Show()
-end
-
--- ============================================================
 -- Export to shared namespace
 -- ============================================================
 MT.SetupSettings = SetupSettings
-MT._DevExportPopup = _DevExportPopup
